@@ -1,0 +1,8 @@
+# PDA chirp, tuned with tools/soundfit.py + tools/micloop.py (USB mic) against a reference clip.
+# <freq_hz> <duration_ms> [volume]. Requested Hz are chosen so the speaker's 128 kHz/N timer
+# lands on the nearest grid pitch: 1962 -> 1969 Hz (B6), 3103 -> 3122 (G7), 2960 -> 2977 (F#7).
+1962 168 1.000
+3103 67 0.488
+2960 62 0.067
+3103 76 0.442
+1962 88 1.000

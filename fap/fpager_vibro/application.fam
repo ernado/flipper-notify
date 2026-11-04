@@ -1,0 +1,11 @@
+App(
+    appid="fpager_vibro",
+    name="fpager vibro",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="fpager_vibro_main",
+    requires=["notification"],
+    stack_size=1 * 1024,
+    fap_category="Tools",
+    fap_version="1.2",
+    fap_description="Vibration-only alert for the fpager host daemon. Args: <info|ok|fail|none> [tones file].",
+)

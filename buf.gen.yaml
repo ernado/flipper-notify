@@ -1,0 +1,15 @@
+version: v2
+plugins:
+  - local: protoc-gen-go
+    out: internal/pb
+    opt:
+      - paths=import
+      - Mflipper.proto=github.com/ernado/flipper-notify/internal/pb/flipper;flipper
+      - Mstorage.proto=github.com/ernado/flipper-notify/internal/pb/storage;storage
+      - Msystem.proto=github.com/ernado/flipper-notify/internal/pb/system;system
+      - Mapplication.proto=github.com/ernado/flipper-notify/internal/pb/application;application
+      - Mgui.proto=github.com/ernado/flipper-notify/internal/pb/gui;gui
+      - Mgpio.proto=github.com/ernado/flipper-notify/internal/pb/gpio;gpio
+      - Mproperty.proto=github.com/ernado/flipper-notify/internal/pb/property;property
+      - Mdesktop.proto=github.com/ernado/flipper-notify/internal/pb/desktop;desktop
+      - module=github.com/ernado/flipper-notify/internal/pb

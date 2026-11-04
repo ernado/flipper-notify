@@ -1,0 +1,10 @@
+# Classic SMS beeps: two pairs. Original: 1500 Hz with strong H2-H4; full duty (volume 1.0)
+# matched its harmonic profile best on the Flipper speaker (mic sweep). 1502 -> 1506 Hz on the
+# speaker's 128 kHz/N grid. Timing measured from the clip.
+1502 215
+0 62
+1502 207
+0 628
+1502 215
+0 60
+1502 208
