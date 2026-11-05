@@ -90,6 +90,7 @@ func (p *Pager) Maintain(ctx context.Context, d Dial) {
 		minBackoff   = 2 * time.Second
 		maxBackoff   = 30 * time.Second
 		pingEvery    = 30 * time.Second
+		rssiEvery    = 10 * time.Second
 		batteryEvery = 5 * time.Minute
 	)
 	backoff := minBackoff
@@ -111,8 +112,16 @@ func (p *Pager) Maintain(ctx context.Context, d Dial) {
 			continue
 		}
 		backoff, lastErr = minBackoff, ""
+		ev := evConnected{client: c, transport: name}
+		if name == "ble" {
+			if rssi, err := transport.ReadRSSI(d.MAC); err == nil {
+				ev.rssi = &rssi
+			} else {
+				p.log.Debug("RSSI read failed", "err", err)
+			}
+		}
 		select {
-		case p.events <- evConnected{client: c, transport: name}:
+		case p.events <- ev:
 		case <-ctx.Done():
 			_ = c.Close()
 			return
@@ -121,17 +130,32 @@ func (p *Pager) Maintain(ctx context.Context, d Dial) {
 		p.pollBattery(ctx, c)
 		lastBattery := time.Now()
 		t := time.NewTicker(pingEvery)
+		rt := time.NewTicker(rssiEvery)
+		if name != "ble" {
+			rt.Stop()
+		}
 	alive:
 		for {
 			select {
 			case <-ctx.Done():
 				t.Stop()
+				rt.Stop()
 				// Let Run hide the display first; then close.
 				time.Sleep(500 * time.Millisecond)
 				_ = c.Close()
 				return
 			case <-c.Done():
 				break alive
+			case <-rt.C:
+				rssi, err := transport.ReadRSSI(d.MAC)
+				if err != nil {
+					p.log.Debug("RSSI read failed", "err", err)
+					continue
+				}
+				select {
+				case p.events <- evSignal{client: c, rssi: rssi}:
+				case <-ctx.Done():
+				}
 			case <-t.C:
 				pctx, cancel := context.WithTimeout(ctx, callTimeout)
 				err := c.Ping(pctx)
@@ -148,6 +172,7 @@ func (p *Pager) Maintain(ctx context.Context, d Dial) {
 			}
 		}
 		t.Stop()
+		rt.Stop()
 		select {
 		case p.events <- evDisconnected{client: c}:
 		case <-ctx.Done():

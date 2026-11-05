@@ -6,6 +6,7 @@ require (
 	github.com/go-faster/errors v0.8.0
 	github.com/godbus/dbus/v5 v5.1.0
 	go.bug.st/serial v1.8.0
+	golang.org/x/sys v0.43.0
 	google.golang.org/protobuf v1.36.5
 	tinygo.org/x/bluetooth v0.17.0
 )
@@ -20,6 +21,5 @@ require (
 	github.com/tinygo-org/cbgo v0.1.0 // indirect
 	github.com/tinygo-org/pio v0.3.0 // indirect
 	golang.org/x/exp v0.0.0-20260727155853-b88d891fe743 // indirect
-	golang.org/x/sys v0.43.0 // indirect
 	tinygo.org/x/espradio v0.5.0 // indirect
 )

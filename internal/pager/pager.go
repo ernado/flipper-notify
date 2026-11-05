@@ -45,6 +45,7 @@ type Status struct {
 	Display   bool           `json:"display"`
 	Alert     string         `json:"alert"`
 	Battery   *Battery       `json:"battery,omitempty"`
+	Signal    *Signal        `json:"signal,omitempty"`
 	Pending   []Notification `json:"pending"`
 }
 
@@ -54,6 +55,19 @@ type Battery struct {
 	State   string    `json:"state"` // charging, discharging, charged
 	Updated time.Time `json:"updated"`
 }
+
+// Signal is the BLE link quality of the current session, as seen by the host controller.
+type Signal struct {
+	RSSI    int       `json:"rssi"`     // dBm, last sample
+	Min     int       `json:"min_rssi"` // dBm, weakest sample this session
+	Updated time.Time `json:"updated"`
+}
+
+// RSSI thresholds (dBm) for weak-signal logging, with hysteresis.
+const (
+	weakRSSI    = -80
+	recoverRSSI = -75
+)
 
 type (
 	evNotify struct {
@@ -68,6 +82,11 @@ type (
 	evConnected struct {
 		client    *rpc.Client
 		transport string
+		rssi      *int // nil if unknown (USB or read failed)
+	}
+	evSignal struct {
+		client *rpc.Client
+		rssi   int
 	}
 	evDisconnected struct{ client *rpc.Client }
 	evStatus       struct{ reply chan Status }
@@ -102,6 +121,8 @@ type Pager struct {
 	alertMode string
 	vibroOK   bool // companion app installed on the current session's device
 	battery   *Battery
+	signal    *Signal
+	weak      bool // weak-signal warning logged for the current session
 
 	defaultSound  string                  // used when a notification has no sound; "" = none
 	levelSounds   map[screen.Level]string // per-level default, overrides defaultSound
@@ -258,13 +279,23 @@ func (p *Pager) handle(ev any) {
 		p.show()
 	case evStatus:
 		s := Status{Connected: p.client != nil, Transport: p.transport, Since: p.since, Display: p.display, Alert: p.alertMode, Battery: p.battery}
+		if p.signal != nil {
+			sig := *p.signal
+			s.Signal = &sig
+		}
 		for _, n := range p.pending {
 			s.Pending = append(s.Pending, *n)
 		}
 		ev.reply <- s
 	case evConnected:
 		p.client, p.transport, p.since, p.display = ev.client, ev.transport, time.Now().UTC(), false
-		p.log.Info("Connected", "transport", ev.transport, "pending", len(p.pending))
+		p.signal, p.weak = nil, false
+		attrs := []any{"transport", ev.transport, "pending", len(p.pending)}
+		if ev.rssi != nil {
+			p.updateSignal(*ev.rssi)
+			attrs = append(attrs, "rssi", *ev.rssi)
+		}
+		p.log.Info("Connected", attrs...)
 		p.vibroOK = false
 		if p.alertMode == AlertVibro {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -285,8 +316,12 @@ func (p *Pager) handle(ev any) {
 		}
 	case evDisconnected:
 		if ev.client == p.client {
-			p.log.Info("Disconnected", "transport", p.transport, "err", ev.client.Err())
-			p.client, p.transport, p.display = nil, "", false
+			attrs := []any{"transport", p.transport, "err", ev.client.Err()}
+			if sig := p.signal; sig != nil {
+				attrs = append(attrs, "rssi", sig.RSSI, "min_rssi", sig.Min, "rssi_age", time.Since(sig.Updated).Round(time.Second))
+			}
+			p.log.Info("Disconnected", attrs...)
+			p.client, p.transport, p.display, p.signal = nil, "", false, nil
 		}
 	case evBattery:
 		if ev.client == p.client {
@@ -294,11 +329,35 @@ func (p *Pager) handle(ev any) {
 			p.battery = &b
 			p.checkBattery(b)
 		}
+	case evSignal:
+		if ev.client == p.client {
+			p.updateSignal(ev.rssi)
+		}
 	case evInput:
 		p.log.Debug("Input", "key", ev.key.String(), "type", ev.typ.String())
 		if ev.client == p.client {
 			p.input(ev.key, ev.typ)
 		}
+	}
+}
+
+// updateSignal records an RSSI sample and logs weak/recovered transitions.
+func (p *Pager) updateSignal(rssi int) {
+	now := time.Now().UTC()
+	if p.signal == nil {
+		p.signal = &Signal{RSSI: rssi, Min: rssi, Updated: now}
+	} else {
+		p.signal.RSSI, p.signal.Updated = rssi, now
+		p.signal.Min = min(p.signal.Min, rssi)
+	}
+	p.log.Debug("Signal", "rssi", rssi)
+	switch {
+	case !p.weak && rssi < weakRSSI:
+		p.weak = true
+		p.log.Warn("Weak signal", "rssi", rssi, "threshold", weakRSSI)
+	case p.weak && rssi >= recoverRSSI:
+		p.weak = false
+		p.log.Info("Signal recovered", "rssi", rssi, "min_rssi", p.signal.Min)
 	}
 }
 

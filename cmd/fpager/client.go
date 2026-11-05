@@ -217,6 +217,9 @@ func cmdStatus(ctx context.Context, args []string) error {
 	if b := s.Battery; b != nil {
 		fmt.Printf("battery: %d%% %s (%s ago)\n", b.Level, b.State, screen.FormatAge(time.Since(b.Updated)))
 	}
+	if sig := s.Signal; sig != nil {
+		fmt.Printf("signal: %d dBm (min %d, %s ago)\n", sig.RSSI, sig.Min, screen.FormatAge(time.Since(sig.Updated)))
+	}
 	fmt.Printf("alert: %s\n", s.Alert)
 	fmt.Printf("pending: %d (display %v)\n", len(s.Pending), s.Display)
 	for _, n := range s.Pending {

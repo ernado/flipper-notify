@@ -117,3 +117,21 @@ func TestLevelSounds(t *testing.T) {
 		}
 	}
 }
+
+func TestSignalHysteresis(t *testing.T) {
+	var buf strings.Builder
+	p := New(slog.New(slog.NewTextHandler(&buf, nil)))
+	for _, rssi := range []int{-60, -82, -85, -78, -76, -74, -81} {
+		p.updateSignal(rssi)
+	}
+	if p.signal.RSSI != -81 || p.signal.Min != -85 || !p.weak {
+		t.Fatalf("signal %+v weak %v", *p.signal, p.weak)
+	}
+	out := buf.String()
+	if n := strings.Count(out, "Weak signal"); n != 2 {
+		t.Errorf("weak warnings: %d\n%s", n, out)
+	}
+	if n := strings.Count(out, "Signal recovered"); n != 1 || !strings.Contains(out, "Signal recovered\" rssi=-74") {
+		t.Errorf("recovered logs: %d\n%s", n, out)
+	}
+}
