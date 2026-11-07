@@ -33,6 +33,7 @@ func cmdDaemon(ctx context.Context, args []string) error {
 	alert := fs.String("alert", envOr("FPAGER_ALERT", "vibro"), "alert: vibro (companion app, no sound), full (vibro+sound+LED), none")
 	sound := fs.String("sound", envOr("FPAGER_DEFAULT_SOUND", "pda"), "default sound for notifications without one (none = silent)")
 	levelSounds := fs.String("level-sounds", envOr("FPAGER_LEVEL_SOUNDS", "fail=sms"), "per-level default sounds, e.g. fail=sms,ok=pda (none = silent)")
+	levelVolumes := fs.String("level-volumes", envOr("FPAGER_LEVEL_VOLUMES", "ok=0.25"), "per-level sound volume 0..1, e.g. ok=0.5,info=0.8")
 	batteryLow := fs.Int("battery-low", envInt("FPAGER_BATTERY_LOW", 15), "notify when the Flipper battery drops below this percent (0 = off)")
 	httpAddr := fs.String("http", os.Getenv("FPAGER_HTTP"), "also serve the HTTP API on this address (requires FPAGER_TOKEN), e.g. 192.168.1.10:9732")
 	_ = fs.Parse(args)
@@ -64,6 +65,9 @@ func cmdDaemon(ctx context.Context, args []string) error {
 		return err
 	}
 	if err := p.SetLevelSounds(*levelSounds); err != nil {
+		return err
+	}
+	if err := p.SetLevelVolumes(*levelVolumes); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithCancel(ctx)

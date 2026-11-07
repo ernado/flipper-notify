@@ -90,6 +90,7 @@ fpager claude-hook                                                              
 | `FPAGER_ALERT` | `vibro` | `vibro` (companion app), `full` (built-in alert with beeps), `none` |
 | `FPAGER_DEFAULT_SOUND` | `pda` | sound for notifications without one (`none` = silent) |
 | `FPAGER_LEVEL_SOUNDS` | `fail=sms` | per-level default sounds |
+| `FPAGER_LEVEL_VOLUMES` | `ok=0.25` | per-level sound volume, 0..1 (e.g. `ok=0.5,info=0.8`) |
 | `FPAGER_BATTERY_LOW` | `15` | low-battery warning threshold, % (`0` = off) |
 | `FPAGER_HTTP` / `FPAGER_TOKEN` | – | daemon: serve the HTTP API on this address with this bearer token |
 | `FPAGER_URL` / `FPAGER_TOKEN` | – | client: send to a remote daemon instead of the local socket |

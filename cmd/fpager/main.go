@@ -31,6 +31,7 @@ Environment:
   FPAGER_ALERT      daemon: vibro (default), full, none
   FPAGER_DEFAULT_SOUND daemon: default sound (default pda, none = silent)
   FPAGER_LEVEL_SOUNDS daemon: per-level default sounds (default fail=sms)
+  FPAGER_LEVEL_VOLUMES daemon: per-level sound volume 0..1 (default ok=0.25)
   FPAGER_SOUND      client: sound for send/run/wait (overrides the daemon default)
   FPAGER_BATTERY_LOW daemon: low-battery warning threshold, percent (default 15, 0 = off)
   FPAGER_HTTP       daemon: also serve the HTTP API on this address

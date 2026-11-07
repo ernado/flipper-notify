@@ -135,3 +135,45 @@ func TestSignalHysteresis(t *testing.T) {
 		t.Errorf("recovered logs: %d\n%s", n, out)
 	}
 }
+
+func TestWantBlink(t *testing.T) {
+	p := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if got := p.wantBlink(); got != "off" {
+		t.Fatalf("empty: %q", got)
+	}
+	for _, c := range []struct {
+		add  screen.Level
+		want string
+	}{
+		{screen.LevelInfo, "info"},
+		{screen.LevelFail, "fail"},
+		{screen.LevelOK, "fail"},
+	} {
+		p.pending = append(p.pending, &Notification{Level: c.add})
+		if got := p.wantBlink(); got != c.want {
+			t.Errorf("after %v: got %q, want %q", c.add, got, c.want)
+		}
+	}
+	p.pending = p.pending[2:] // only the ok one left
+	if got := p.wantBlink(); got != "ok" {
+		t.Errorf("ok only: %q", got)
+	}
+}
+
+func TestLevelVolumes(t *testing.T) {
+	p := newTestPager(t, 0)
+	if err := p.SetLevelVolumes("ok=0.5, info=1"); err != nil {
+		t.Fatal(err)
+	}
+	if p.levelVolumes[screen.LevelOK] != 0.5 || p.levelVolumes[screen.LevelInfo] != 1 {
+		t.Fatalf("parsed %v", p.levelVolumes)
+	}
+	if _, ok := p.levelVolumes[screen.LevelFail]; ok {
+		t.Fatal("fail should be unset")
+	}
+	for _, bad := range []string{"ok", "bogus=0.5", "ok=loud", "ok=1.5", "ok=-0.1"} {
+		if err := p.SetLevelVolumes(bad); err == nil {
+			t.Errorf("%q: want error", bad)
+		}
+	}
+}

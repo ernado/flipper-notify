@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,15 +120,17 @@ type Pager struct {
 	display   bool
 	nextID    uint64
 	alertMode string
-	vibroOK   bool // companion app installed on the current session's device
+	vibroOK   bool   // companion app installed on the current session's device
+	blink     string // unread-LED blink level last set on the device: "", "off", or a level; "" = unknown
 	battery   *Battery
 	signal    *Signal
 	weak      bool // weak-signal warning logged for the current session
 
-	defaultSound  string                  // used when a notification has no sound; "" = none
-	levelSounds   map[screen.Level]string // per-level default, overrides defaultSound
-	batteryLow    int                     // warn below this percent while discharging; 0 = off
-	batteryWarned bool                    // warning sent, re-armed after charging or recovery
+	defaultSound  string                   // used when a notification has no sound; "" = none
+	levelSounds   map[screen.Level]string  // per-level default, overrides defaultSound
+	levelVolumes  map[screen.Level]float64 // per-level sound volume scale 0..1; missing = 1
+	batteryLow    int                      // warn below this percent while discharging; 0 = off
+	batteryWarned bool                     // warning sent, re-armed after charging or recovery
 }
 
 // batteryRearm is how far above the threshold the level must recover to warn again.
@@ -153,6 +156,32 @@ func (p *Pager) SetDefaultSound(name string) error {
 		return errors.Errorf("unknown sound %q (have: %s)", name, strings.Join(fap.Sounds(), ", "))
 	}
 	p.defaultSound = name
+	return nil
+}
+
+// SetLevelVolumes sets per-level sound volume scales from "level=v,level=v" (0..1, e.g. "ok=0.5").
+func (p *Pager) SetLevelVolumes(spec string) error {
+	m := map[screen.Level]float64{}
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			return errors.Errorf("bad level volume %q (want level=0..1)", part)
+		}
+		lvl, err := screen.ParseLevel(strings.TrimSpace(k))
+		if err != nil {
+			return err
+		}
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil || f < 0 || f > 1 {
+			return errors.Errorf("bad volume %q for %s (want 0..1)", v, lvl)
+		}
+		m[lvl] = f
+	}
+	p.levelVolumes = m
 	return nil
 }
 
@@ -296,7 +325,7 @@ func (p *Pager) handle(ev any) {
 			attrs = append(attrs, "rssi", *ev.rssi)
 		}
 		p.log.Info("Connected", attrs...)
-		p.vibroOK = false
+		p.vibroOK, p.blink = false, ""
 		if p.alertMode == AlertVibro {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			wrote, err := fap.Ensure(ctx, p.client)
@@ -313,6 +342,8 @@ func (p *Pager) handle(ev any) {
 		if len(p.pending) > 0 {
 			p.alert()
 			p.show()
+		} else {
+			p.syncBlink() // clear a blink left from a previous session
 		}
 	case evDisconnected:
 		if ev.client == p.client {
@@ -383,13 +414,13 @@ func (p *Pager) alert() {
 		}
 	}
 	if !need || p.alertMode == AlertNone {
+		p.syncBlink()
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
-	defer cancel()
 	var err error
 	if p.alertMode == AlertVibro && p.vibroOK {
-		args := lvl.String()
+		blink := p.wantBlink()
+		args := lvl.String() + " light blink:" + blink
 		if sound == "" {
 			if s, ok := p.levelSounds[lvl]; ok {
 				sound = s
@@ -402,23 +433,72 @@ func (p *Pager) alert() {
 		}
 		if sound != "" {
 			if sp := fap.SoundPath(sound); sp != "" {
+				if v, ok := p.levelVolumes[lvl]; ok && v != 1 {
+					args += " vol:" + strconv.FormatFloat(v, 'f', -1, 64)
+				}
 				args += " " + sp
 			} else {
 				p.log.Warn("Unknown sound, ignoring", "sound", sound, "known", fap.Sounds())
 			}
 		}
-		// A previous alert may still be playing (the Flipper runs one app at a time): retry briefly.
-		for deadline := time.Now().Add(2 * time.Second); ; {
-			err = p.client.StartApp(ctx, fap.VibroPath, args)
-			var se *rpc.StatusError
-			if !errors.As(err, &se) || se.Status != flipper.CommandStatus_ERROR_APP_SYSTEM_LOCKED || time.Now().After(deadline) {
-				break
-			}
-			time.Sleep(150 * time.Millisecond)
+		if err = p.startVibro(args); err == nil {
+			p.blink = blink
 		}
 	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 		err = p.client.Alert(ctx)
+		cancel()
 	}
+	p.alertErr(err)
+}
+
+// wantBlink is the unread-LED state for the current pending list: the most severe level, or "off".
+func (p *Pager) wantBlink() string {
+	if len(p.pending) == 0 {
+		return "off"
+	}
+	lvl := screen.LevelInfo
+	for _, n := range p.pending {
+		if severity(n.Level) > severity(lvl) {
+			lvl = n.Level
+		}
+	}
+	return lvl.String()
+}
+
+// syncBlink updates the unread-LED blink on the device if it differs from wantBlink.
+func (p *Pager) syncBlink() {
+	if p.client == nil || p.alertMode != AlertVibro || !p.vibroOK {
+		return
+	}
+	want := p.wantBlink()
+	if want == p.blink {
+		return
+	}
+	err := p.startVibro("none blink:" + want)
+	if err == nil {
+		p.blink = want
+	}
+	p.alertErr(err)
+}
+
+// startVibro launches the companion app. A previous run may still be playing (the
+// Flipper runs one app at a time), so APP_SYSTEM_LOCKED is retried briefly.
+func (p *Pager) startVibro(args string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+	for deadline := time.Now().Add(2 * time.Second); ; {
+		err := p.client.StartApp(ctx, fap.VibroPath, args)
+		var se *rpc.StatusError
+		if !errors.As(err, &se) || se.Status != flipper.CommandStatus_ERROR_APP_SYSTEM_LOCKED || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+}
+
+// alertErr logs device-side refusals and drops the session on transport errors.
+func (p *Pager) alertErr(err error) {
 	var se *rpc.StatusError
 	switch {
 	case err == nil:
@@ -488,6 +568,7 @@ func (p *Pager) input(key gui.InputKey, typ gui.InputType) {
 	default:
 		return
 	}
+	p.syncBlink()
 	if len(p.pending) == 0 {
 		p.hide()
 		return
